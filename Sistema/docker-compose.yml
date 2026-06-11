@@ -1,0 +1,120 @@
+services:
+
+  # ─── Banco Relacional ───
+  postgres:
+    image: postgres:16-alpine
+    container_name: sistema-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: cc6240
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Banco Documento (Produtos) ───
+  mongodb:
+    image: mongo:7
+    container_name: sistema-mongodb
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodata:/data/db
+    networks:
+      - app-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── Cache (Carrinho) ───
+  redis:
+    image: redis:7-alpine
+    container_name: sistema-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── Admin PostgreSQL ───
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: sistema-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    volumes:
+      - ./pgadmin/servers.json:/pgadmin4/servers.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ─── Backend (NestJS) ───
+  backend:
+    build:
+      context: ./backend
+    container_name: sistema-backend
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: cc6240
+      DB_NAME: postgres
+      MONGO_URI: mongodb://mongodb:27017/ecommerce
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ─── Frontend (React + MUI) ───
+  frontend:
+    build:
+      context: ./frontend
+    container_name: sistema-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+volumes:
+  pgdata:
+  mongodata:
+
+networks:
+  app-network:
+    driver: bridge
